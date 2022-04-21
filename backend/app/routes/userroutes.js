@@ -14,6 +14,12 @@ module.exports = app => {
     app.get("/api/test/profile",[authJwt.verifyToken],controller.profileBoard);
     app.post("/api/test/changeavatar",[authJwt.verifyToken],controller.changeAvatar);
     app.post("/api/test/changenick",[authJwt.verifyToken],controller.changeNick);
+    app.post("/api/test/createroom",[authJwt.verifyToken],controller.createRoom);
+    app.post("/api/test/joinroom",[authJwt.verifyToken],controller.joinRoom);
+    app.get("/api/test/updateroom",[authJwt.verifyToken],controller.updateRoom);
+    app.get("/api/test/searchusers",[authJwt.verifyToken],controller.searchUsers);
+    app.get("/api/test/showfriends",[authJwt.verifyToken],controller.showFriends);
+    app.post("/api/test/addfriend",[authJwt.verifyToken],controller.addFriend);
     app.get(
         "/api/test/mod",
         [authJwt.verifyToken,authJwt.isModerator],

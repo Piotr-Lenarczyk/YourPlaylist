@@ -3,21 +3,11 @@ const path = require("path");
 const Role = db.role;
 const Avatar = db.avatar;
 const User = db.user;
-const multer = require("multer");
+const Room = db.room;
 const formidable = require("formidable");
+const uniqid = require("uniqid");
 
 let sourceAv;
-
-// const storage = multer.diskStorage({
-//     destination: "app/pictures/",
-//     filename: (req,file,cb) => {
-//         const fileName = file.originalname;
-//         console.log(file);
-//         cb(null,fileName);
-//     }
-// });
-
-// const uploadImage = multer({storage:storage}).single("avatar");
 
 allAccess = (req,res) => {
     res.status(200).send("Public content");
@@ -27,9 +17,7 @@ userBoard = async (req,res) => {
     //tutaj wysyłamy wszystkie informacje które są na stronie głównej po zalogowaniu
     try{
         const u = await User.findById(req.userId);
-        //console.log(u);
         const av = await Avatar.findById(u.avatarPictures[0]);
-        //console.log(av);
         return res.send(JSON.stringify({
             picture: av.src,
             username: u.username,
@@ -95,6 +83,139 @@ changeNick = async (req,res) => {
     }
 }
 
+createRoom = async (req,res) => {
+    const code = uniqid();
+    try{
+        const room = new Room({
+            name: req.body.name,
+            accessCode: code
+        });
+        console.log(room);
+        await room.save();
+        const u = await User.findById(req.userId);
+        u.rooms.push(room);
+        await u.save();
+        console.log(u);
+        return res.send({message: "Room created", code: code});
+    }
+    catch(err){
+        return res.send(err);
+    }
+}
+
+joinRoom = async (req,res) => {
+    const u = await User.findById(req.userId);
+    const r = await Room.findOne({accessCode: req.body.code});
+    if(r){
+        r.members.push(u);
+        if(!u.rooms.includes(r)) u.rooms.push(r);
+        await r.save();
+        await u.save();
+        const ret = {};
+        ret["name"] = r.name;
+        ret["members"] = [];
+        ret["playlist"] = {};
+        for(let m of r.members){
+            let user = await User.findById(m);
+            let av = await Avatar.findById(user.avatarPictures[0]);
+            ret["members"].push({
+                "username": user.username,
+                "avatar": av.src
+            });
+        }
+        return res.send(ret);
+    }
+    else{
+        return res.send({message: "Room does not exist"});
+    }
+}
+
+leaveRoom = async (req,res) => {
+    const u = await User.findById(req.userId);
+    const r = await Room.findOne({accessCode: req.body.code});
+    if(r){
+        r.members.splice(r.members.indexOf(u),1);
+        await r.save();
+        return res.send({message: "succesfully left the room"});
+    }
+    else{
+        return res.send({message: "Room does not exist"});
+    }
+}
+
+updateRoom = async (req,res) => {
+    const r = await Room.findOne({accessCode: req.body.code});
+    if(r){
+        const ret = {};
+        ret["name"] = r.name;
+        ret["members"] = [];
+        ret["playlist"] = {};
+        for(let m of r.members){
+            let user = await User.findById(m);
+            let av = await Avatar.findById(user.avatarPictures[0]);
+            ret["members"].push({
+                "username": user.username,
+                "avatar": av.src
+            });
+        }
+        return res.send(ret);
+    }
+    else{
+        return res.send({message: "Room does not exist"});
+    }
+}
+
+searchUsers = async (req,res) => {
+    const results = await User.find({username: {$regex: req.body.searchterm,$options: "i"}});
+    if(results){
+        let ret = [];
+        for(let r of results){
+            const av = await Avatar.findById(r.avatarPictures[0]);
+            if(av){
+                ret.push({
+                    username: r.username,
+                    avatar: av.src
+                });
+            }
+        }
+        return res.send(ret);
+    }
+    else{
+        return res.send({message: "no results"});
+    }
+}
+
+showFriends = async (req,res) => {
+    const u = await User.findById(req.userId);
+    if(u.friends.length > 0){
+        let ret = [];
+        for(let f of u.friends){
+            const friend = User.findById(f);
+            const av = Avatar.findById(friend.avatarPictures[0]);
+            if(av){
+                ret.push({
+                    username: friend.username,
+                    avatar: av.src
+                });
+            }
+        }
+        return res.send(ret);
+    }
+    else{
+        return res.send({message: "No friends yet"});
+    }
+}
+
+addFriend = async (req,res) => {
+    const u = await User.findById(req.userId);
+    const friend = await User.findOne({username: req.body.friendname});
+    u.friends.push(friend);
+    friend.friends.push(u);
+    await u.save();
+    await friend.save();
+    return res.send({message: "friend added"});
+}
+
 adminBoard = (req,res) => {
     res.status(200).send("Admin content");
 }
@@ -110,5 +231,12 @@ module.exports = {
     moderatorBoard,
     profileBoard,
     changeAvatar,
-    changeNick
+    changeNick,
+    createRoom,
+    joinRoom,
+    leaveRoom,
+    updateRoom,
+    searchUsers,
+    showFriends,
+    addFriend
 };

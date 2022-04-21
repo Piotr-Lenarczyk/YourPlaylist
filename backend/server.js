@@ -6,14 +6,17 @@ const dbconfig = require("./app/config/dbconfig");
 const db = require("./app/models/index");
 const authJwt = require("./app/middleware/authjwt");
 const controller = require("./app/controllers/usercontroller");
-const multer = require("multer");
+const User = require("./app/models/usermodel");
 const Role = db.role;
 const Avatar = db.avatar;
-let corsOptions = {
-    origin: "https://localhost:3000"
-};
+const Room = db.Room;
+const io = require("socket.io")(5050,{
+    cors: {
+        origin: "http://localhost:3000"
+    }
+});
 
-app.use(cors(corsOptions));
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({extended: true}));
 app.use(express.static(path.join(__dirname, "app/pictures/")));
@@ -67,12 +70,18 @@ db.mongoose
     console.log("Error: ",err);
 });
 
-// Role.find({}).then(roles => {
-//     console.log(roles);
-// });
-// Avatar.find({}).then(avatars => {
-//     console.log(avatars);
-// });
+//sockety
+io.on("connection",socket => {
+    console.log("someone connected");
+    socket.on("join-room",data => {
+        socket.join(data);
+        io.to(data).emit("updateroom");
+    });
+    socket.on("leave-room",data => {
+        socket.leave(data);
+        io.to(data).emit("updateroom");
+    });
+});
 
 //requesty
 app.get("/",(req,res) => {
