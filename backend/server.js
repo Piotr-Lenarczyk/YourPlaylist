@@ -12,7 +12,7 @@ const Avatar = db.avatar;
 const Room = db.Room;
 const io = require("socket.io")(5050,{
     cors: {
-        origin: "http://localhost:3000"
+        origin: ["http://localhost:3000","http://localhost:3001"]
     }
 });
 
@@ -42,15 +42,6 @@ function initial(){
             .save(err => {
                 if(err) console.log("Error: ",err);
                 console.log(`Added "admin" to Roles collection`);
-            });
-        }
-    });
-    Avatar.estimatedDocumentCount((err,count) => {
-        if(!err && count == 0){
-            new Avatar({name: "default", src: path.join(__dirname, `app/pictures/default.png`)})
-            .save(err => {
-                if(err) console.log("Error: ",err);
-                console.log("Added default avatar to Avatar database");
             });
         }
     });

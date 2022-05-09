@@ -6,8 +6,7 @@ const User = db.user;
 const Room = db.room;
 const formidable = require("formidable");
 const uniqid = require("uniqid");
-
-let sourceAv;
+const fs = require("fs");
 
 allAccess = (req,res) => {
     res.status(200).send("Public content");
@@ -17,13 +16,17 @@ userBoard = async (req,res) => {
     //tutaj wysyłamy wszystkie informacje które są na stronie głównej po zalogowaniu
     try{
         const u = await User.findById(req.userId);
-        const av = await Avatar.findById(u.avatarPictures[0]);
-        return res.send(JSON.stringify({
-            picture: av.src,
+        const rooms = [];
+        for(let r of u.rooms){
+            const room = await Room.findById(r);
+            rooms.push(room);
+        }
+        return res.send({
+            picture: u.avatar,
             username: u.username,
             playlists: undefined,
-            rooms: undefined
-        }));
+            rooms: rooms
+        });
     }
     catch(err){
         return res.send({message:err});
@@ -34,11 +37,11 @@ profileBoard = async (req,res) => {
     //wyświetla się lista możliwych ustawień wyświetlanych elementów profilu
     try{
         const u = await User.findById(req.userId);
-        const av = await Avatar.findById(u.avatarPictures[0]);
-        return res.send(JSON.stringify({
-            picture: av.src,
-            username: u.username
-        }));
+        console.log(u);
+        return res.send({
+            username: u.username,
+            avatar: u.avatar
+        });
     }
     catch(err){
         return res.send({message:err});
@@ -49,21 +52,19 @@ changeAvatar = async (req,res) => {
     //tutaj jest obsługa zmieniania i zapisywania zapostowanego awatara
     try{
         let form = new formidable.IncomingForm();
-        console.log(path.join(__dirname,"..","pictures"));
-        form.multiples = true;
+        console.log(form);
         form.uploadDir = path.join(__dirname,"..","pictures");
-
-        form.parse(req,(err,fields,files) => {
-            console.log(fields);
-            console.log(files);
-        });
-
         const u = await User.findById(req.userId);
-        const av = new Avatar({name: req.userId, src: sourceAv});
-        await av.save();
-        u.avatarPictures[0] = av._id;
-        await u.save();
-        return res.send({message: "avatar changed!"});
+
+        form.parse(req,async (err,fields,files) => {
+            if(err) return res.status(400);
+            const avatarName = `${uniqid()}.png`;
+            fs.renameSync(files.avatar.filepath,path.join(__dirname,"..","pictures",avatarName));
+            u.avatar = avatarName;
+            await u.save();
+            return res.send({message: "avatar changed!"});
+        });
+        
     }
     catch(err){
         return res.send({message:err});
@@ -74,6 +75,10 @@ changeNick = async (req,res) => {
     //tutaj jest obsługa zmieniania username'a
     try{
         const u = await User.findById(req.userId);
+        const someUser = await User.findOne({username: req.body.newusername});
+        if(someUser){
+            return res.send({message: "There is already a user with that name"});
+        }
         u.username = req.body.newusername;
         await u.save();
         return res.send({message: "username changed!"});
@@ -106,40 +111,53 @@ createRoom = async (req,res) => {
 joinRoom = async (req,res) => {
     const u = await User.findById(req.userId);
     const r = await Room.findOne({accessCode: req.body.code});
-    if(r){
-        r.members.push(u);
-        if(!u.rooms.includes(r)) u.rooms.push(r);
-        await r.save();
-        await u.save();
-        const ret = {};
-        ret["name"] = r.name;
-        ret["members"] = [];
-        ret["playlist"] = {};
-        for(let m of r.members){
-            let user = await User.findById(m);
-            let av = await Avatar.findById(user.avatarPictures[0]);
-            ret["members"].push({
-                "username": user.username,
-                "avatar": av.src
-            });
+    if(!u.isInRoom){
+        if(r){
+            r.members.push(u._id);
+            if(!u.rooms.includes(r._id)) u.rooms.push(r._id);
+            u.isInRoom = true;
+            await r.save();
+            await u.save();
+            const ret = {};
+            ret["name"] = r.name;
+            ret["members"] = [];
+            ret["playlist"] = {};
+            for(let m of r.members){
+                let user = await User.findById(m);
+                ret["members"].push({
+                    "username": user.username,
+                    "avatar": user.avatar
+                });
+            }
+            return res.send(ret);
         }
-        return res.send(ret);
+        else{
+            return res.send({message: "Room does not exist"});
+        }
     }
     else{
-        return res.send({message: "Room does not exist"});
+        return res.send({message: "You are already in a room"});
     }
 }
 
 leaveRoom = async (req,res) => {
     const u = await User.findById(req.userId);
-    const r = await Room.findOne({accessCode: req.body.code});
-    if(r){
-        r.members.splice(r.members.indexOf(u),1);
-        await r.save();
-        return res.send({message: "succesfully left the room"});
+    console.log(u.username);
+    if(u.isInRoom){
+        const r = await Room.findOne({accessCode: req.body.code});
+        if(r){
+            r.members.splice(r.members.indexOf(u._id),1);
+            u.isInRoom = false;
+            await r.save();
+            await u.save();
+            return res.send({message: "succesfully left the room"});
+        }
+        else{
+            return res.send({message: "Room does not exist"});
+        }
     }
     else{
-        return res.send({message: "Room does not exist"});
+        return res.send({message: "You are not in any room currently"});
     }
 }
 
@@ -152,10 +170,9 @@ updateRoom = async (req,res) => {
         ret["playlist"] = {};
         for(let m of r.members){
             let user = await User.findById(m);
-            let av = await Avatar.findById(user.avatarPictures[0]);
             ret["members"].push({
                 "username": user.username,
-                "avatar": av.src
+                "avatar": user.avatar
             });
         }
         return res.send(ret);
@@ -166,15 +183,18 @@ updateRoom = async (req,res) => {
 }
 
 searchUsers = async (req,res) => {
-    const results = await User.find({username: {$regex: req.body.searchterm,$options: "i"}});
+    console.log(req.body.searchterm);
+    const u = await User.findById(req.userId);
+    let results = await User.find({username: {$regex: String(req.body.searchterm),$options: "i"}});
+    console.log(u.username);
     if(results){
         let ret = [];
+        results = results.filter(a => !u.friends.includes(a._id));
         for(let r of results){
-            const av = await Avatar.findById(r.avatarPictures[0]);
-            if(av){
+            if(r.username != u.username){
                 ret.push({
                     username: r.username,
-                    avatar: av.src
+                    avatar: r.avatar
                 });
             }
         }
@@ -190,14 +210,11 @@ showFriends = async (req,res) => {
     if(u.friends.length > 0){
         let ret = [];
         for(let f of u.friends){
-            const friend = User.findById(f);
-            const av = Avatar.findById(friend.avatarPictures[0]);
-            if(av){
-                ret.push({
-                    username: friend.username,
-                    avatar: av.src
-                });
-            }
+            const friend = await User.findById(f);
+            ret.push({
+                username: friend.username,
+                avatar: friend.avatar
+            });
         }
         return res.send(ret);
     }
@@ -209,11 +226,19 @@ showFriends = async (req,res) => {
 addFriend = async (req,res) => {
     const u = await User.findById(req.userId);
     const friend = await User.findOne({username: req.body.friendname});
-    u.friends.push(friend);
-    friend.friends.push(u);
-    await u.save();
-    await friend.save();
-    return res.send({message: "friend added"});
+    if(!friend){
+        return res.send({message: "No user with that name"});
+    }
+    if(u.username != req.body.friendname){
+        u.friends.push(friend._id);
+        friend.friends.push(u._id);
+        await u.save();
+        await friend.save();
+        return res.send({message: "friend added"});
+    }
+    else{
+        return res.send({message: "can't friend yourself"});
+    }
 }
 
 adminBoard = (req,res) => {
